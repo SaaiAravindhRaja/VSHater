@@ -2,19 +2,31 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { encryptContent, decryptContent, isEncrypted } from './encryption';
+import { startServer, stopServer, setSession, getServerUrl } from './server';
+import { spawn } from 'child_process';
+import { platform } from 'os';
 
 // Map to track which files are encrypted
 const encryptedFiles = new Map<string, string>();
+const lockedFiles = new Map<string, vscode.TextDocument>();
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 
 	console.log('Extension "vshater" is now active - files will be encrypted on open!');
 
+	try {
+		// Start the HTTP server for challenges
+		await startServer();
+	} catch (err) {
+		console.error('Failed to start server:', err);
+		vscode.window.showErrorMessage('VSHater: Failed to start challenge server');
+	}
+
 	// Listen for file open events
 	const openDisposable = vscode.workspace.onDidOpenTextDocument(async (document) => {
-		await handleFileOpen(document);
+		await handleFileOpen(document, context);
 	});
 
 	// Listen for file save events to re-encrypt if needed
@@ -56,9 +68,16 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	context.subscriptions.push(openDisposable, saveDisposable, decryptDisposable);
+
+	// Cleanup on deactivation
+	context.subscriptions.push(
+		new vscode.Disposable(() => {
+			stopServer();
+		})
+	);
 }
 
-async function handleFileOpen(document: vscode.TextDocument) {
+async function handleFileOpen(document: vscode.TextDocument, context: vscode.ExtensionContext) {
 	// Skip non-file documents (like untitled, git, etc.)
 	if (document.uri.scheme !== 'file') {
 		return;
@@ -93,6 +112,7 @@ async function handleFileOpen(document: vscode.TextDocument) {
 		// Store the original content
 		const fileUri = document.uri.toString();
 		encryptedFiles.set(fileUri, content);
+		lockedFiles.set(fileUri, document);
 
 		// Encrypt the content
 		const encrypted = encryptContent(content, document.fileName);
@@ -109,8 +129,89 @@ async function handleFileOpen(document: vscode.TextDocument) {
 
 		console.log(`File encrypted: ${document.fileName}`);
 		vscode.window.showInformationMessage(`🔒 File locked: ${document.fileName}`);
+
+		// Open challenge in browser
+		await openChallengeBrowser(fileUri, document.fileName);
 	} catch (error) {
 		console.error('Error encrypting file:', error);
+	}
+}
+
+async function openChallengeBrowser(fileUri: string, fileName: string) {
+	const serverUrl = getServerUrl();
+
+	// Set up session to handle completion
+	setSession({
+		fileUri,
+		fileName,
+		onComplete: async (success: boolean) => {
+			if (success) {
+				await decryptFile(fileUri);
+			}
+		},
+		onError: (error: string) => {
+			vscode.window.showErrorMessage(`Challenge error: ${error}`);
+		}
+	});
+
+	// Open browser based on platform
+	try {
+		const osType = platform();
+
+		// Add small delay to ensure server is ready
+		await new Promise(resolve => setTimeout(resolve, 500));
+
+		if (osType === 'win32') {
+			// Windows: use cmd.exe to run start command
+			spawn('cmd.exe', ['/c', `start ${serverUrl}`], { detached: true, stdio: 'ignore' });
+		} else if (osType === 'darwin') {
+			// macOS: use open command
+			spawn('open', [serverUrl], { detached: true, stdio: 'ignore' });
+		} else {
+			// Linux: use xdg-open
+			spawn('xdg-open', [serverUrl], { detached: true, stdio: 'ignore' });
+		}
+
+		console.log(`Opening browser at ${serverUrl}`);
+	} catch (error) {
+		console.error('Error opening browser:', error);
+		vscode.window.showErrorMessage('Failed to open challenge browser. Please manually visit: ' + getServerUrl());
+	}
+}
+
+async function decryptFile(fileUri: string) {
+	const document = lockedFiles.get(fileUri);
+	if (!document) {
+		vscode.window.showErrorMessage('File not found');
+		return;
+	}
+
+	const content = document.getText();
+	const decrypted = decryptContent(content);
+
+	if (!decrypted) {
+		vscode.window.showErrorMessage('Failed to decrypt file');
+		return;
+	}
+
+	try {
+		const edit = new vscode.WorkspaceEdit();
+		const fullRange = new vscode.Range(
+			document.positionAt(0),
+			document.positionAt(content.length)
+		);
+
+		edit.replace(document.uri, fullRange, decrypted);
+		await vscode.workspace.applyEdit(edit);
+
+		lockedFiles.delete(fileUri);
+		encryptedFiles.delete(fileUri);
+
+		vscode.window.showInformationMessage(`✓ File unlocked: ${document.fileName}`);
+		console.log(`File decrypted: ${document.fileName}`);
+	} catch (error) {
+		console.error('Error decrypting file:', error);
+		vscode.window.showErrorMessage('Failed to decrypt file');
 	}
 }
 
