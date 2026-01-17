@@ -146,7 +146,8 @@ export function getServerUrl(): string {
 const ALL_CHALLENGES = [
 	{ path: '/assets/67.jpg', pose: '67hands', description: '67 HANDS - Wave both hands up and down rapidly' },
 	{ path: '/assets/flight-emote.jpg', pose: 'fanum', description: 'FANUM TAX - Stick out tongue and shake head' },
-	{ path: '/assets/monkey.jpg', pose: 'monkeythink', description: 'MONKEY THINK - Put finger on your lip' }
+	{ path: '/assets/monkey.jpg', pose: 'monkeythink', description: 'MONKEY THINK - Put finger on your lip' },
+	{ path: '/assets/khaby.jpg', pose: 'khaby', description: 'KHABY LAME - Palms up shrug with bent elbows' }
 ];
 
 // Shuffle array using Fisher-Yates algorithm
@@ -672,6 +673,67 @@ function getChallengeHTML(): string {
 			return fingerOnLip;
 		}
 
+		function checkKhaby(landmarks) {
+			// KHABY LAME: Palms up shrug gesture
+			// Wrists below shoulders, elbows bent < 120 degrees, wrists above mid torso
+			const leftShoulder = landmarks[11];
+			const rightShoulder = landmarks[12];
+			const leftElbow = landmarks[13];
+			const rightElbow = landmarks[14];
+			const leftWrist = landmarks[15];
+			const rightWrist = landmarks[16];
+			const leftHip = landmarks[23];
+			const rightHip = landmarks[24];
+
+			if (!leftShoulder || !rightShoulder || !leftElbow || !rightElbow ||
+				!leftWrist || !rightWrist || !leftHip || !rightHip) {
+				return false;
+			}
+
+			// Check visibility
+			if (leftWrist.visibility < 0.5 || rightWrist.visibility < 0.5 ||
+				leftElbow.visibility < 0.5 || rightElbow.visibility < 0.5) {
+				return false;
+			}
+
+			// Calculate mid torso Y (average of shoulders and hips)
+			const midTorsoY = (leftShoulder.y + rightShoulder.y + leftHip.y + rightHip.y) / 4;
+
+			// Check wrists below shoulders (y increases downward)
+			const leftWristBelowShoulder = leftWrist.y > leftShoulder.y;
+			const rightWristBelowShoulder = rightWrist.y > rightShoulder.y;
+
+			// Check wrists above mid torso
+			const leftWristAboveMidTorso = leftWrist.y < midTorsoY;
+			const rightWristAboveMidTorso = rightWrist.y < midTorsoY;
+
+			// Calculate elbow angles using dot product
+			function calculateAngle(a, b, c) {
+				// Angle at point b, formed by points a-b-c
+				const ba = { x: a.x - b.x, y: a.y - b.y };
+				const bc = { x: c.x - b.x, y: c.y - b.y };
+				const dot = ba.x * bc.x + ba.y * bc.y;
+				const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y);
+				const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y);
+				if (magBA === 0 || magBC === 0) return 180;
+				const cosAngle = dot / (magBA * magBC);
+				const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * (180 / Math.PI);
+				return angle;
+			}
+
+			// Elbow angle: shoulder -> elbow -> wrist
+			const leftElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+			const rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+
+			// Elbows bent less than 120 degrees
+			const leftElbowBent = leftElbowAngle < 120;
+			const rightElbowBent = rightElbowAngle < 120;
+
+			return leftWristBelowShoulder && rightWristBelowShoulder &&
+				leftWristAboveMidTorso && rightWristAboveMidTorso &&
+				leftElbowBent && rightElbowBent;
+		}
+
 		function checkCurrentPose(landmarks) {
 			const requiredPose = IMAGES[imageIndex].pose;
 
@@ -682,6 +744,8 @@ function getChallengeHTML(): string {
 					return checkFanumTax(landmarks);
 				case 'monkeythink':
 					return checkMonkeyThink(landmarks);
+				case 'khaby':
+					return checkKhaby(landmarks);
 				default:
 					return false;
 			}
