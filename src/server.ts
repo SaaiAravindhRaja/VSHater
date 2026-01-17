@@ -149,7 +149,8 @@ const ALL_CHALLENGES = [
 	{ path: '/assets/monkey.jpg', pose: 'monkeythink', description: 'MONKEY THINK - Put finger on your lip' },
 	{ path: '/assets/khaby.jpg', pose: 'khaby', description: 'KHABY LAME - Palms up shrug with bent elbows' },
 	{ path: '/assets/mewing.jpg', pose: 'mewing', description: 'MEWING - Point to jawline with lips closed' },
-	{ path: '/assets/monkeyhappy.jpg', pose: 'monkeyhappy', description: 'MONKEY HAPPY - Smile wide and point up' }
+	{ path: '/assets/monkeyhappy.jpg', pose: 'monkeyhappy', description: 'MONKEY HAPPY - Smile wide and point up' },
+	{ path: '/assets/dab.jpg', pose: 'dab', description: 'DAB - Tuck face into elbow, extend other arm out' }
 ];
 
 // Shuffle array using Fisher-Yates algorithm
@@ -813,6 +814,67 @@ function getChallengeHTML(): string {
 			return hasSmile && fingerUp;
 		}
 
+		function checkDab(landmarks) {
+			// DAB: One arm bent with face tucked into elbow, other arm extended diagonally
+			const nose = landmarks[0];
+			const leftShoulder = landmarks[11];
+			const rightShoulder = landmarks[12];
+			const leftElbow = landmarks[13];
+			const rightElbow = landmarks[14];
+			const leftWrist = landmarks[15];
+			const rightWrist = landmarks[16];
+
+			if (!nose || !leftShoulder || !rightShoulder ||
+				!leftElbow || !rightElbow || !leftWrist || !rightWrist) {
+				return false;
+			}
+
+			// Helper: distance between two points
+			function dist(a, b) {
+				return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+			}
+
+			// Helper: check if arm is somewhat extended (elbow angle > 110 degrees)
+			function isArmExtended(shoulder, elbow, wrist) {
+				const ba = { x: shoulder.x - elbow.x, y: shoulder.y - elbow.y };
+				const bc = { x: wrist.x - elbow.x, y: wrist.y - elbow.y };
+				const dot = ba.x * bc.x + ba.y * bc.y;
+				const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y);
+				const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y);
+				if (magBA === 0 || magBC === 0) return false;
+				const cosAngle = dot / (magBA * magBC);
+				const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * (180 / Math.PI);
+				return angle > 110;
+			}
+
+			// Helper: check if arm is bent (elbow angle < 130 degrees)
+			function isArmBent(shoulder, elbow, wrist) {
+				const ba = { x: shoulder.x - elbow.x, y: shoulder.y - elbow.y };
+				const bc = { x: wrist.x - elbow.x, y: wrist.y - elbow.y };
+				const dot = ba.x * bc.x + ba.y * bc.y;
+				const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y);
+				const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y);
+				if (magBA === 0 || magBC === 0) return false;
+				const cosAngle = dot / (magBA * magBC);
+				const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle))) * (180 / Math.PI);
+				return angle < 130;
+			}
+
+			// Check left dab: face near left elbow/wrist area, right arm extended
+			const noseNearLeftArm = dist(nose, leftElbow) < 0.4 || dist(nose, leftWrist) < 0.3;
+			const leftArmBent = isArmBent(leftShoulder, leftElbow, leftWrist);
+			const rightArmExtended = isArmExtended(rightShoulder, rightElbow, rightWrist);
+			const leftDab = noseNearLeftArm && leftArmBent && rightArmExtended;
+
+			// Check right dab: face near right elbow/wrist area, left arm extended
+			const noseNearRightArm = dist(nose, rightElbow) < 0.4 || dist(nose, rightWrist) < 0.3;
+			const rightArmBent = isArmBent(rightShoulder, rightElbow, rightWrist);
+			const leftArmExtended = isArmExtended(leftShoulder, leftElbow, leftWrist);
+			const rightDab = noseNearRightArm && rightArmBent && leftArmExtended;
+
+			return leftDab || rightDab;
+		}
+
 		function checkCurrentPose(landmarks) {
 			const requiredPose = IMAGES[imageIndex].pose;
 
@@ -829,6 +891,8 @@ function getChallengeHTML(): string {
 					return checkMewing(landmarks);
 				case 'monkeyhappy':
 					return checkMonkeyHappy(landmarks);
+				case 'dab':
+					return checkDab(landmarks);
 				default:
 					return false;
 			}
