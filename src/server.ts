@@ -285,13 +285,14 @@ function getChallengeHTML(): string {
 			width: 100%;
 			max-width: 1300px;
 			padding: 0 10px;
+			margin-top: 20px;
 		}
 
 		.progress-bar-wrapper {
 			flex: 1;
-			height: 5px;
+			height: 12px;
 			background: rgba(0, 217, 255, 0.1);
-			border-radius: 2.5px;
+			border-radius: 6px;
 			overflow: hidden;
 			border: 1px solid rgba(0, 217, 255, 0.2);
 		}
@@ -300,15 +301,15 @@ function getChallengeHTML(): string {
 			height: 100%;
 			background: linear-gradient(90deg, #00d9ff, #0099ff);
 			transition: width 0.4s ease;
-			border-radius: 2.5px;
+			border-radius: 6px;
 		}
 
 		.progress-text {
-			font-size: 11px;
-			font-weight: 600;
+			font-size: 18px;
+			font-weight: 700;
 			color: #00d9ff;
 			letter-spacing: 0.5px;
-			min-width: 28px;
+			min-width: 40px;
 			text-align: center;
 			white-space: nowrap;
 		}
@@ -527,7 +528,7 @@ function getChallengeHTML(): string {
 				console.error('Timeout error:', err);
 			}
 
-			document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#ff4d6d;font-family:Archivo,sans-serif;"><h1 style="font-size:48px;">TIME\\'S UP!</h1><p style="font-size:24px;color:#fff;">File has been deleted. You're cooked lil bro.</p></div>';
+			document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#ff4d6d;font-family:Archivo,sans-serif;"><h1 style="font-size:48px;">TIME\\'S UP!</h1><p style="font-size:24px;color:#fff;">File has been deleted. You\\'re cooked lil bro.</p></div>';
 		}
 
 		function startTimer() {
