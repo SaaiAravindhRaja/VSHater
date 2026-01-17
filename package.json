@@ -16,18 +16,6 @@
   "contributes": {
     "commands": [
       {
-        "command": "vshater.helloWorld",
-        "title": "Hello World"
-      },
-      {
-        "command": "vshater.startDetection",
-        "title": "VSHater: Start Detection (Random)"
-      },
-      {
-        "command": "vshater.testDetection",
-        "title": "VSHater: Test Detection (Pick Action)"
-      },
-      {
         "command": "vshater.decryptFile",
         "title": "VSHater: Decrypt Current File"
       }

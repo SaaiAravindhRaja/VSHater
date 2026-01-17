@@ -142,14 +142,26 @@ export function getServerUrl(): string {
 	return `http://localhost:${PORT}`;
 }
 
-const CHALLENGE_IMAGES = [
-	'/assets/67.jpg',
-	'/assets/flight-emote.jpg',
-	'/assets/monkey.jpg'
+// Map images to required poses
+const ALL_CHALLENGES = [
+	{ path: '/assets/67.jpg', pose: '67hands', description: '67 HANDS - Wave both hands up and down rapidly' },
+	{ path: '/assets/flight-emote.jpg', pose: 'fanum', description: 'FANUM TAX - Stick out tongue and shake head' },
+	{ path: '/assets/monkey.jpg', pose: 'monkeythink', description: 'MONKEY THINK - Put finger on your lip' }
 ];
 
+// Shuffle array using Fisher-Yates algorithm
+function shuffleArray<T>(array: T[]): T[] {
+	const shuffled = [...array];
+	for (let i = shuffled.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+	}
+	return shuffled;
+}
+
 function getChallengeHTML(): string {
-	const randomImage = CHALLENGE_IMAGES[Math.floor(Math.random() * CHALLENGE_IMAGES.length)];
+	// Shuffle challenges each time
+	const challenges = shuffleArray(ALL_CHALLENGES);
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -327,6 +339,64 @@ function getChallengeHTML(): string {
 			gap: 12px;
 		}
 
+		.match-meter {
+			position: absolute;
+			bottom: 16px;
+			left: 16px;
+			right: 16px;
+			height: 8px;
+			background: rgba(0, 0, 0, 0.6);
+			border-radius: 4px;
+			overflow: hidden;
+			border: 1px solid rgba(255, 255, 255, 0.2);
+		}
+
+		.match-meter-fill {
+			height: 100%;
+			width: 0%;
+			background: linear-gradient(90deg, #ff4d6d, #ffaa00, #00ff88);
+			border-radius: 4px;
+			transition: width 0.15s ease-out;
+		}
+
+		.match-meter-fill.matched {
+			background: #00ff88;
+			box-shadow: 0 0 12px #00ff88;
+		}
+
+		.match-label {
+			position: absolute;
+			bottom: 30px;
+			left: 0;
+			right: 0;
+			text-align: center;
+			font-size: 11px;
+			font-weight: 700;
+			color: rgba(255, 255, 255, 0.7);
+			letter-spacing: 1px;
+			text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+		}
+
+		.match-label.matched {
+			color: #00ff88;
+			text-shadow: 0 0 8px #00ff88;
+		}
+
+		.action-description {
+			padding: 12px;
+			background: rgba(0, 217, 255, 0.1);
+			border-top: 1px solid rgba(0, 217, 255, 0.2);
+			font-size: 13px;
+			font-weight: 600;
+			color: #00d9ff;
+			text-align: center;
+			letter-spacing: 0.5px;
+			min-height: 40px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+
 		.hidden {
 			display: none;
 		}
@@ -341,14 +411,19 @@ function getChallengeHTML(): string {
 		<div class="content">
 			<div class="card" id="imageCard">
 				<div class="image-section" id="imageSection">
-					<img id="challengeImage" src="${randomImage}" alt="Challenge" />
+					<img id="challengeImage" src="${challenges[0].path}" alt="Challenge" />
 				</div>
+				<div class="action-description" id="actionDescription">${challenges[0].description}</div>
 			</div>
 
 			<div class="card" id="webcamCard">
 				<div class="webcam-section">
 					<video id="webcam" autoplay playsinline muted></video>
 					<div class="webcam-error" id="webcamError"></div>
+					<div class="match-meter" id="matchMeter">
+						<div class="match-meter-fill" id="matchMeterFill"></div>
+					</div>
+					<div class="match-label" id="matchLabel">MATCHING...</div>
 				</div>
 			</div>
 		</div>
@@ -361,35 +436,41 @@ function getChallengeHTML(): string {
 		</div>
 	</div>
 
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js"></script>
 	<script>
-		const IMAGES = ['${CHALLENGE_IMAGES[0]}', '${CHALLENGE_IMAGES[1]}', '${CHALLENGE_IMAGES[2]}'];
+		const IMAGES = [
+			{ path: '${challenges[0].path}', pose: '${challenges[0].pose}', desc: '${challenges[0].description}' },
+			{ path: '${challenges[1].path}', pose: '${challenges[1].pose}', desc: '${challenges[1].description}' },
+			{ path: '${challenges[2].path}', pose: '${challenges[2].pose}', desc: '${challenges[2].description}' }
+		];
 
-		// Image carousel
+		// State
 		let imageIndex = 0;
-		const challengeImage = document.getElementById('challengeImage');
-		const imageCard = document.getElementById('imageCard');
-
-		// Webcam carousel (3 views)
-		let webcamIndex = 0;
-		const video = document.getElementById('webcam');
-		const webcamError = document.getElementById('webcamError');
-		const webcamCard = document.getElementById('webcamCard');
-
-		// Overall progress
-		const overallProgressBar = document.getElementById('overallProgressBar');
-		const overallProgressText = document.getElementById('overallProgressText');
-
 		let stream = null;
+		let pose = null;
+		let faceMesh = null;
+		let camera = null;
+		let poseDetectionActive = false;
+		let poseConfidenceCounter = 0;
+		let isTransitioning = false;
+		const POSE_CONFIDENCE_THRESHOLD = 5;
+
+		// FaceMesh results storage (updated by faceMesh callback)
+		let currentFaceLandmarks = null;
 
 		function updateOverallProgress() {
 			const totalSteps = imageIndex + 1;
 			const percentage = (totalSteps / 3) * 100;
-			overallProgressBar.style.width = percentage + '%';
-			overallProgressText.textContent = totalSteps + '/3';
+			document.getElementById('overallProgressBar').style.width = percentage + '%';
+			document.getElementById('overallProgressText').textContent = totalSteps + '/3';
 		}
 
 		async function completeChallenge() {
 			try {
+				poseDetectionActive = false;
 				const response = await fetch('/complete', {
 					method: 'POST',
 					headers: {
@@ -403,6 +484,9 @@ function getChallengeHTML(): string {
 						if (stream) {
 							stream.getTracks().forEach(track => track.stop());
 						}
+						if (camera) {
+							camera.stop();
+						}
 						window.close();
 					}, 300);
 				}
@@ -411,30 +495,271 @@ function getChallengeHTML(): string {
 			}
 		}
 
-		imageCard.addEventListener('click', (e) => {
-			if (e.target.tagName !== 'IMG') return;
+		function clearMotionHistory() {
+			leftWristHistory = [];
+			rightWristHistory = [];
+			handYHistory = [];
+			headXHistory = [];
+			currentFaceLandmarks = null;
+		}
+
+		function advanceToNextImage() {
 			if (imageIndex < 2) {
 				imageIndex++;
-				challengeImage.src = IMAGES[imageIndex];
+				document.getElementById('challengeImage').src = IMAGES[imageIndex].path;
+				document.getElementById('actionDescription').textContent = IMAGES[imageIndex].desc;
 				updateOverallProgress();
+				poseConfidenceCounter = 0;
+				clearMotionHistory();
+				console.log(\`Advanced to image \${imageIndex + 1}/3: \${IMAGES[imageIndex].desc}\`);
 			} else if (imageIndex === 2) {
-				// At 3/3, auto-complete
+				console.log('All poses completed!');
 				completeChallenge();
 			}
-		});
+		}
 
-		webcamCard.addEventListener('click', () => {
-			if (webcamIndex < 2) {
-				webcamIndex++;
-				updateOverallProgress();
+		// Pose matchers - Based on index.html detection logic
+		// Landmark indices: 0=nose, 2=left_eye, 5=right_eye, 11=left_shoulder, 12=right_shoulder
+		// 13=left_elbow, 14=right_elbow, 15=left_wrist, 16=right_wrist
+
+		// Distance helper
+		function dist(a, b) {
+			return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+		}
+
+		// History tracking for motion-based detection
+		let leftWristHistory = [];
+		let rightWristHistory = [];
+		let handYHistory = [];
+		let headXHistory = []; // For head shake detection
+
+		function check67Hands(landmarks) {
+			// 67 HANDS: Wave both hands up and down rapidly (oscillation detection)
+			const leftWrist = landmarks[15];
+			const rightWrist = landmarks[16];
+
+			if (!leftWrist || !rightWrist) return false;
+
+			// Track wrist Y positions over time
+			leftWristHistory.push(leftWrist.y);
+			rightWristHistory.push(rightWrist.y);
+			if (leftWristHistory.length > 30) leftWristHistory.shift();
+			if (rightWristHistory.length > 30) rightWristHistory.shift();
+
+			if (leftWristHistory.length < 15) return false;
+
+			// Count direction changes (oscillation)
+			function countChanges(hist) {
+				let changes = 0, lastDir = 0;
+				for (let i = 1; i < hist.length; i++) {
+					const diff = hist[i] - hist[i - 1];
+					if (Math.abs(diff) > 0.015) {
+						const dir = diff > 0 ? 1 : -1;
+						if (lastDir !== 0 && dir !== lastDir) changes++;
+						lastDir = dir;
+					}
+				}
+				return changes;
 			}
-		});
 
-		async function initWebcam() {
+			// Get movement range
+			function getRange(hist) {
+				return Math.max(...hist) - Math.min(...hist);
+			}
+
+			const leftChanges = countChanges(leftWristHistory);
+			const rightChanges = countChanges(rightWristHistory);
+			const leftRange = getRange(leftWristHistory);
+			const rightRange = getRange(rightWristHistory);
+
+			// Require actual movement amplitude
+			if (leftRange < 0.08 || rightRange < 0.08) return false;
+
+			// Need at least 3 direction changes on each hand
+			return leftChanges >= 3 && rightChanges >= 3;
+		}
+
+		function checkFanumTax(landmarks) {
+			// FANUM TAX: Stick out tongue and shake head
+			// Requires FaceMesh for mouth/tongue detection
+
+			if (!currentFaceLandmarks || currentFaceLandmarks.length === 0) {
+				return false;
+			}
+
+			const fl = currentFaceLandmarks;
+
+			// FaceMesh landmark indices:
+			// 13 = upper lip inner, 14 = lower lip inner
+			// 78 = left mouth corner, 308 = right mouth corner
+			// 1 = nose tip (for head position tracking)
+
+			const upperLip = fl[13];
+			const lowerLip = fl[14];
+			const leftMouth = fl[78];
+			const rightMouth = fl[308];
+			const noseTip = fl[1];
+
+			if (!upperLip || !lowerLip || !leftMouth || !rightMouth || !noseTip) {
+				return false;
+			}
+
+			// Check mouth open (tongue out proxy)
+			// Measure vertical opening relative to mouth width
+			const mouthWidth = Math.abs(rightMouth.x - leftMouth.x) + 0.001;
+			const mouthOpen = Math.abs(lowerLip.y - upperLip.y);
+			const openRatio = mouthOpen / mouthWidth;
+
+			// Mouth needs to be significantly open (tongue out)
+			const isTongueOut = openRatio > 0.35;
+
+			// Track head X position for shake detection
+			headXHistory.push(noseTip.x);
+			if (headXHistory.length > 30) headXHistory.shift();
+
+			// Check for head shake (oscillation in X direction)
+			let isShakingHead = false;
+			if (headXHistory.length >= 15) {
+				// Count direction changes
+				let changes = 0;
+				let lastDir = 0;
+				for (let i = 1; i < headXHistory.length; i++) {
+					const diff = headXHistory[i] - headXHistory[i - 1];
+					if (Math.abs(diff) > 0.008) {
+						const dir = diff > 0 ? 1 : -1;
+						if (lastDir !== 0 && dir !== lastDir) changes++;
+						lastDir = dir;
+					}
+				}
+
+				// Get movement range
+				const range = Math.max(...headXHistory) - Math.min(...headXHistory);
+
+				// Need at least 3 direction changes and some range
+				isShakingHead = changes >= 3 && range > 0.04;
+			}
+
+			return isTongueOut && isShakingHead;
+		}
+
+		function checkMonkeyThink(landmarks) {
+			// MONKEY THINK: Finger on lip/mouth corner (thinking pose)
+			const nose = landmarks[0];
+			const mouthLeft = landmarks[9];
+			const mouthRight = landmarks[10];
+			const leftIndex = landmarks[19];  // Left index finger tip
+			const rightIndex = landmarks[20]; // Right index finger tip
+
+			if (!nose) return false;
+
+			// Check if index finger is near mouth/lip area
+			let fingerOnLip = false;
+
+			// Left index finger near mouth
+			if (leftIndex && leftIndex.visibility > 0.3) {
+				const leftFingerNearMouth = (mouthLeft && dist(leftIndex, mouthLeft) < 0.08) ||
+					(mouthRight && dist(leftIndex, mouthRight) < 0.08) ||
+					(dist(leftIndex, nose) < 0.12 && leftIndex.y > nose.y);
+				if (leftFingerNearMouth) fingerOnLip = true;
+			}
+
+			// Right index finger near mouth
+			if (rightIndex && rightIndex.visibility > 0.3) {
+				const rightFingerNearMouth = (mouthLeft && dist(rightIndex, mouthLeft) < 0.08) ||
+					(mouthRight && dist(rightIndex, mouthRight) < 0.08) ||
+					(dist(rightIndex, nose) < 0.12 && rightIndex.y > nose.y);
+				if (rightFingerNearMouth) fingerOnLip = true;
+			}
+
+			return fingerOnLip;
+		}
+
+		function checkCurrentPose(landmarks) {
+			const requiredPose = IMAGES[imageIndex].pose;
+
+			switch (requiredPose) {
+				case '67hands':
+					return check67Hands(landmarks);
+				case 'fanum':
+					return checkFanumTax(landmarks);
+				case 'monkeythink':
+					return checkMonkeyThink(landmarks);
+				default:
+					return false;
+			}
+		}
+
+		function updateMatchMeter(value, matched = false) {
+			const fill = document.getElementById('matchMeterFill');
+			const label = document.getElementById('matchLabel');
+			const percentage = Math.min(100, (value / POSE_CONFIDENCE_THRESHOLD) * 100);
+
+			fill.style.width = percentage + '%';
+
+			if (matched) {
+				fill.classList.add('matched');
+				label.classList.add('matched');
+				label.textContent = 'MATCHED!';
+			} else if (percentage > 0) {
+				fill.classList.remove('matched');
+				label.classList.remove('matched');
+				label.textContent = 'HOLD POSE...';
+			} else {
+				fill.classList.remove('matched');
+				label.classList.remove('matched');
+				label.textContent = 'MATCHING...';
+			}
+		}
+
+		async function onPoseResults(results) {
+			if (!poseDetectionActive) return;
+
+			// MediaPipe Pose returns poseLandmarks (not landmarks)
+			const landmarks = results.poseLandmarks;
+			// Skip detection during transitions
+			if (isTransitioning) return;
+
+			if (landmarks && landmarks.length > 0) {
+				if (checkCurrentPose(landmarks)) {
+					poseConfidenceCounter++;
+					updateMatchMeter(poseConfidenceCounter, false);
+
+					if (poseConfidenceCounter >= POSE_CONFIDENCE_THRESHOLD) {
+						// Block further detection during transition
+						isTransitioning = true;
+						updateMatchMeter(POSE_CONFIDENCE_THRESHOLD, true);
+						console.log(\`Pose detected: \${IMAGES[imageIndex].pose}\`);
+
+						// Delay before next pose (longer to prevent carry-over)
+						setTimeout(() => {
+							advanceToNextImage();
+							poseConfidenceCounter = 0;
+							clearMotionHistory();
+							updateMatchMeter(0, false);
+							// Re-enable detection after transition
+							isTransitioning = false;
+						}, 2000);
+					}
+				} else {
+					// Strictly consecutive: reset to 0 immediately when pose lost
+					poseConfidenceCounter = 0;
+					updateMatchMeter(0, false);
+				}
+			} else {
+				// No pose detected - reset counter
+				poseConfidenceCounter = 0;
+				updateMatchMeter(0, false);
+			}
+		}
+
+		async function initPoseDetection() {
 			try {
 				if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
 					throw new Error('Webcam API not available');
 				}
+
+				const video = document.getElementById('webcam');
+				const webcamError = document.getElementById('webcamError');
 
 				stream = await navigator.mediaDevices.getUserMedia({
 					video: {
@@ -447,19 +772,80 @@ function getChallengeHTML(): string {
 
 				video.srcObject = stream;
 				webcamError.classList.remove('show');
+
+				// Initialize MediaPipe Pose
+				pose = new Pose({
+					locateFile: (file) => {
+						return \`https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/\${file}\`;
+					}
+				});
+
+				pose.setOptions({
+					modelComplexity: 1,
+					smoothLandmarks: true,
+					enableSegmentation: false,
+					smoothSegmentation: false,
+					minDetectionConfidence: 0.5,
+					minTrackingConfidence: 0.5
+				});
+
+				pose.onResults(onPoseResults);
+
+				// Initialize MediaPipe FaceMesh (for fanum pose)
+				faceMesh = new FaceMesh({
+					locateFile: (file) => {
+						return \`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/\${file}\`;
+					}
+				});
+
+				faceMesh.setOptions({
+					maxNumFaces: 1,
+					refineLandmarks: true,
+					minDetectionConfidence: 0.5,
+					minTrackingConfidence: 0.5
+				});
+
+				faceMesh.onResults((results) => {
+					// Store face landmarks for use in pose detection
+					if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+						currentFaceLandmarks = results.multiFaceLandmarks[0];
+					} else {
+						currentFaceLandmarks = null;
+					}
+				});
+
+				// Initialize Camera
+				camera = new Camera(video, {
+					onFrame: async () => {
+						await pose.send({ image: video });
+						await faceMesh.send({ image: video });
+					},
+					width: 1280,
+					height: 720
+				});
+
+				camera.start();
+				poseDetectionActive = true;
+				console.log('Pose detection started');
 			} catch (err) {
-				console.error('Webcam error:', err);
-				webcamError.textContent = err.message;
+				console.error('Initialization error:', err);
+				const webcamError = document.getElementById('webcamError');
+				webcamError.textContent = err.message || 'Failed to initialize pose detection';
 				webcamError.classList.add('show');
+				poseDetectionActive = false;
 			}
 		}
 
 		window.addEventListener('load', () => {
-			initWebcam();
+			initPoseDetection();
 			updateOverallProgress();
 		});
 
 		window.addEventListener('beforeunload', () => {
+			poseDetectionActive = false;
+			if (camera) {
+				camera.stop();
+			}
 			if (stream) {
 				stream.getTracks().forEach(track => track.stop());
 			}
