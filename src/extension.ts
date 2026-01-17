@@ -134,8 +134,20 @@ async function startPoseChallenge(fileUri: string, fileName: string) {
 				await decryptFile(fileUri);
 			}
 		},
-		onError: (error: string) => {
-			vscode.window.showErrorMessage(`Challenge error: ${error}`);
+		onError: async (error: string) => {
+			if (error === 'timeout') {
+				// Delete the file on timeout
+				try {
+					const uri = vscode.Uri.parse(fileUri);
+					await vscode.workspace.fs.delete(uri);
+					vscode.window.showErrorMessage('Time expired! File has been deleted.');
+				} catch (err) {
+					console.error('Failed to delete file:', err);
+					vscode.window.showErrorMessage('Time expired! Failed to delete file.');
+				}
+			} else {
+				vscode.window.showErrorMessage(`Challenge error: ${error}`);
+			}
 		}
 	});
 

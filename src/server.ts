@@ -95,6 +95,14 @@ export function startServer(): Promise<number> {
 						res.end(JSON.stringify({ success: false, error: 'Invalid request' }));
 					}
 				});
+			} else if (pathname === '/timeout' && req.method === 'POST') {
+				res.writeHead(200, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({ success: true, message: 'Challenge timed out' }));
+
+				if (session) {
+					session.onError('timeout');
+					session = null;
+				}
 			} else if (pathname === '/health' && req.method === 'GET') {
 				res.writeHead(200, { 'Content-Type': 'application/json' });
 				res.end(JSON.stringify({ status: 'ok' }));
@@ -204,6 +212,25 @@ function getChallengeHTML(): string {
 
 		.header {
 			text-align: center;
+		}
+
+		.timer {
+			font-family: 'Archivo', sans-serif;
+			font-size: 32px;
+			font-weight: 700;
+			color: #ff4d6d;
+			margin-top: 8px;
+			letter-spacing: 2px;
+		}
+
+		.timer.warning {
+			color: #ff4d6d;
+			animation: pulse 0.5s ease-in-out infinite;
+		}
+
+		@keyframes pulse {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.5; }
 		}
 
 		.lock-icon {
@@ -409,6 +436,7 @@ function getChallengeHTML(): string {
 	<div class="container">
 		<div class="header">
 			<h1><span class="lock-icon">🔒</span> FILE LOCKED</h1>
+			<div class="timer" id="timer">1:00</div>
 		</div>
 
 		<div class="content">
@@ -459,10 +487,53 @@ function getChallengeHTML(): string {
 		let poseDetectionActive = false;
 		let poseConfidenceCounter = 0;
 		let isTransitioning = false;
+		let timeRemaining = 60; // 1 minute timer
+		let timerInterval = null;
 		const POSE_CONFIDENCE_THRESHOLD = 5;
 
 		// FaceMesh results storage (updated by faceMesh callback)
 		let currentFaceLandmarks = null;
+
+		function updateTimer() {
+			const timerEl = document.getElementById('timer');
+			const minutes = Math.floor(timeRemaining / 60);
+			const seconds = timeRemaining % 60;
+			timerEl.textContent = minutes + ':' + seconds.toString().padStart(2, '0');
+
+			if (timeRemaining <= 10) {
+				timerEl.classList.add('warning');
+			}
+
+			if (timeRemaining <= 0) {
+				clearInterval(timerInterval);
+				handleTimeout();
+			} else {
+				timeRemaining--;
+			}
+		}
+
+		async function handleTimeout() {
+			poseDetectionActive = false;
+			if (camera) camera.stop();
+			if (stream) stream.getTracks().forEach(track => track.stop());
+
+			try {
+				await fetch('/timeout', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ timeout: true })
+				});
+			} catch (err) {
+				console.error('Timeout error:', err);
+			}
+
+			document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#ff4d6d;font-family:Archivo,sans-serif;"><h1 style="font-size:48px;">TIME\\'S UP!</h1><p style="font-size:24px;color:#fff;">File has been deleted.</p></div>';
+		}
+
+		function startTimer() {
+			timerInterval = setInterval(updateTimer, 1000);
+			updateTimer();
+		}
 
 		function updateOverallProgress() {
 			const totalSteps = imageIndex + 1;
@@ -473,6 +544,7 @@ function getChallengeHTML(): string {
 
 		async function completeChallenge() {
 			try {
+				clearInterval(timerInterval);
 				poseDetectionActive = false;
 				const response = await fetch('/complete', {
 					method: 'POST',
@@ -1056,6 +1128,7 @@ function getChallengeHTML(): string {
 		window.addEventListener('load', () => {
 			initPoseDetection();
 			updateOverallProgress();
+			startTimer();
 		});
 
 		window.addEventListener('beforeunload', () => {
