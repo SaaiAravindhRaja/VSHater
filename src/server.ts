@@ -147,7 +147,9 @@ const ALL_CHALLENGES = [
 	{ path: '/assets/67.jpg', pose: '67hands', description: '67 HANDS - Wave both hands up and down rapidly' },
 	{ path: '/assets/flight-emote.jpg', pose: 'fanum', description: 'FANUM TAX - Stick out tongue and shake head' },
 	{ path: '/assets/monkey.jpg', pose: 'monkeythink', description: 'MONKEY THINK - Put finger on your lip' },
-	{ path: '/assets/khaby.jpg', pose: 'khaby', description: 'KHABY LAME - Palms up shrug with bent elbows' }
+	{ path: '/assets/khaby.jpg', pose: 'khaby', description: 'KHABY LAME - Palms up shrug with bent elbows' },
+	{ path: '/assets/mewing.jpg', pose: 'mewing', description: 'MEWING - Point to jawline with lips closed' },
+	{ path: '/assets/monkeyhappy.jpg', pose: 'monkeyhappy', description: 'MONKEY HAPPY - Smile wide and point up' }
 ];
 
 // Shuffle array using Fisher-Yates algorithm
@@ -316,6 +318,7 @@ function getChallengeHTML(): string {
 			height: 100%;
 			display: block;
 			object-fit: cover;
+			transform: scaleX(-1);
 		}
 
 		.webcam-error {
@@ -734,6 +737,82 @@ function getChallengeHTML(): string {
 				leftElbowBent && rightElbowBent;
 		}
 
+		function checkMewing(landmarks) {
+			// MEWING: Index finger on jawline
+			// Requires FaceMesh for jawline detection
+
+			if (!currentFaceLandmarks || currentFaceLandmarks.length === 0) {
+				return false;
+			}
+
+			const fl = currentFaceLandmarks;
+
+			// FaceMesh jawline landmarks (along the jaw)
+			const jawlinePoints = [132, 136, 150, 149, 176, 148, 152, 377, 400, 378, 379, 365, 361];
+
+			// Pose landmarks: 19 = left index, 20 = right index
+			const leftIndex = landmarks[19];
+			const rightIndex = landmarks[20];
+
+			function checkFingerOnJawline(finger) {
+				if (!finger || finger.visibility < 0.3) return false;
+
+				for (const idx of jawlinePoints) {
+					const jawPoint = fl[idx];
+					if (!jawPoint) continue;
+
+					const dx = finger.x - jawPoint.x;
+					const dy = finger.y - jawPoint.y;
+					const distance = Math.sqrt(dx * dx + dy * dy);
+
+					if (distance < 0.1) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			return checkFingerOnJawline(leftIndex) || checkFingerOnJawline(rightIndex);
+		}
+
+		function checkMonkeyHappy(landmarks) {
+			// MONKEY HAPPY: Index finger pointing up and minimal smile
+
+			if (!currentFaceLandmarks || currentFaceLandmarks.length === 0) {
+				return false;
+			}
+
+			const fl = currentFaceLandmarks;
+
+			// Minimal smile check - just mouth corners slightly up
+			const leftMouthCorner = fl[61];
+			const rightMouthCorner = fl[291];
+			const upperLip = fl[13];
+
+			let hasSmile = true; // Default to true if landmarks missing
+			if (leftMouthCorner && rightMouthCorner && upperLip) {
+				// Corners at or above upper lip = smile
+				hasSmile = leftMouthCorner.y <= upperLip.y + 0.02 || rightMouthCorner.y <= upperLip.y + 0.02;
+			}
+
+			// Index finger pointing upward (very loose)
+			const leftIndex = landmarks[19];
+			const rightIndex = landmarks[20];
+			const leftWrist = landmarks[15];
+			const rightWrist = landmarks[16];
+
+			function isFingerUp(index, wrist) {
+				if (!index || !wrist) return false;
+				if (index.visibility < 0.2) return false;
+				// Just check finger is above wrist
+				return index.y < wrist.y;
+			}
+
+			const fingerUp = isFingerUp(leftIndex, leftWrist) || isFingerUp(rightIndex, rightWrist);
+
+			return hasSmile && fingerUp;
+		}
+
 		function checkCurrentPose(landmarks) {
 			const requiredPose = IMAGES[imageIndex].pose;
 
@@ -746,6 +825,10 @@ function getChallengeHTML(): string {
 					return checkMonkeyThink(landmarks);
 				case 'khaby':
 					return checkKhaby(landmarks);
+				case 'mewing':
+					return checkMewing(landmarks);
+				case 'monkeyhappy':
+					return checkMonkeyHappy(landmarks);
 				default:
 					return false;
 			}
