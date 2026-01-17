@@ -195,7 +195,7 @@ function getChallengeHTML(): string {
 			align-items: center;
 			gap: 12px;
 			width: 100%;
-			max-width: 1000px;
+			max-width: 1300px;
 		}
 
 		.header {
@@ -237,7 +237,7 @@ function getChallengeHTML(): string {
 			overflow: hidden;
 			backdrop-filter: blur(10px);
 			transition: all 0.3s ease;
-			min-height: 260px;
+			height: 420px;
 			position: relative;
 		}
 
@@ -252,7 +252,7 @@ function getChallengeHTML(): string {
 			align-items: center;
 			gap: 12px;
 			width: 100%;
-			max-width: 1000px;
+			max-width: 1300px;
 			padding: 0 10px;
 		}
 
@@ -297,8 +297,6 @@ function getChallengeHTML(): string {
 			height: 100%;
 			object-fit: cover;
 			display: block;
-			max-width: 400px;
-			max-height: 260px;
 		}
 
 		.webcam-section {
