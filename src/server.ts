@@ -527,7 +527,7 @@ function getChallengeHTML(): string {
 				console.error('Timeout error:', err);
 			}
 
-			document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#ff4d6d;font-family:Archivo,sans-serif;"><h1 style="font-size:48px;">TIME\\'S UP!</h1><p style="font-size:24px;color:#fff;">File has been deleted.</p></div>';
+			document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#ff4d6d;font-family:Archivo,sans-serif;"><h1 style="font-size:48px;">TIME\\'S UP!</h1><p style="font-size:24px;color:#fff;">File has been deleted. You're cooked lil bro.</p></div>';
 		}
 
 		function startTimer() {
