@@ -751,12 +751,20 @@ function getChallengeHTML(): string {
 			// FaceMesh jawline landmarks (along the jaw)
 			const jawlinePoints = [132, 136, 150, 149, 176, 148, 152, 377, 400, 378, 379, 365, 361];
 
+			// Get face bounding box to check finger is in face region
+			const noseTip = fl[1];
+			const chin = fl[152];
+			if (!noseTip || !chin) return false;
+
 			// Pose landmarks: 19 = left index, 20 = right index
 			const leftIndex = landmarks[19];
 			const rightIndex = landmarks[20];
 
 			function checkFingerOnJawline(finger) {
 				if (!finger || finger.visibility < 0.3) return false;
+
+				// Finger must be in lower face region (below nose, near chin level)
+				if (finger.y < noseTip.y) return false;
 
 				for (const idx of jawlinePoints) {
 					const jawPoint = fl[idx];
@@ -766,7 +774,7 @@ function getChallengeHTML(): string {
 					const dy = finger.y - jawPoint.y;
 					const distance = Math.sqrt(dx * dx + dy * dy);
 
-					if (distance < 0.1) {
+					if (distance < 0.07) {
 						return true;
 					}
 				}
