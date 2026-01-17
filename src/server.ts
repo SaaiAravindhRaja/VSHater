@@ -388,12 +388,38 @@ function getChallengeHTML(): string {
 			overallProgressText.textContent = totalSteps + '/3';
 		}
 
+		async function completeChallenge() {
+			try {
+				const response = await fetch('/complete', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ completed: true, timestamp: Date.now() })
+				});
+
+				if (response.ok) {
+					setTimeout(() => {
+						if (stream) {
+							stream.getTracks().forEach(track => track.stop());
+						}
+						window.close();
+					}, 300);
+				}
+			} catch (err) {
+				console.error('Error completing challenge:', err);
+			}
+		}
+
 		imageCard.addEventListener('click', (e) => {
 			if (e.target.tagName !== 'IMG') return;
 			if (imageIndex < 2) {
 				imageIndex++;
 				challengeImage.src = IMAGES[imageIndex];
 				updateOverallProgress();
+			} else if (imageIndex === 2) {
+				// At 3/3, auto-complete
+				completeChallenge();
 			}
 		});
 

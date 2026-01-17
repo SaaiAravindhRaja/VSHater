@@ -6,8 +6,7 @@ import { startServer, stopServer, setSession, getServerUrl } from './server';
 import { spawn } from 'child_process';
 import { platform } from 'os';
 
-// Map to track which files are encrypted
-const encryptedFiles = new Map<string, string>();
+// Map to track locked files for decryption
 const lockedFiles = new Map<string, vscode.TextDocument>();
 
 // This method is called when your extension is activated
@@ -109,13 +108,12 @@ async function handleFileOpen(document: vscode.TextDocument, context: vscode.Ext
 	}
 
 	try {
-		// Store the original content
+		// Track locked file for later decryption
 		const fileUri = document.uri.toString();
-		encryptedFiles.set(fileUri, content);
 		lockedFiles.set(fileUri, document);
 
 		// Encrypt the content
-		const encrypted = encryptContent(content, document.fileName);
+		const encrypted = encryptContent(content);
 
 		// Replace the file content with encrypted version
 		const edit = new vscode.WorkspaceEdit();
@@ -180,16 +178,28 @@ async function openChallengeBrowser(fileUri: string, fileName: string) {
 }
 
 async function decryptFile(fileUri: string) {
-	const document = lockedFiles.get(fileUri);
+	// Find the document through all open text documents
+	let document: vscode.TextDocument | undefined;
+	for (const doc of vscode.workspace.textDocuments) {
+		if (doc.uri.toString() === fileUri) {
+			document = doc;
+			break;
+		}
+	}
+
 	if (!document) {
+		console.error('Document not found for URI:', fileUri);
 		vscode.window.showErrorMessage('File not found');
 		return;
 	}
 
 	const content = document.getText();
+	console.log(`Decrypting file: ${document.fileName}, content starts with: ${content.substring(0, 30)}`);
+
 	const decrypted = decryptContent(content);
 
 	if (!decrypted) {
+		console.error('Decryption failed - content might not be encrypted');
 		vscode.window.showErrorMessage('Failed to decrypt file');
 		return;
 	}
@@ -202,16 +212,22 @@ async function decryptFile(fileUri: string) {
 		);
 
 		edit.replace(document.uri, fullRange, decrypted);
-		await vscode.workspace.applyEdit(edit);
+		const success = await vscode.workspace.applyEdit(edit);
 
-		lockedFiles.delete(fileUri);
-		encryptedFiles.delete(fileUri);
+		if (success) {
+			lockedFiles.delete(fileUri);
 
-		vscode.window.showInformationMessage(`✓ File unlocked: ${document.fileName}`);
-		console.log(`File decrypted: ${document.fileName}`);
+			// Save the file
+			await document.save();
+
+			vscode.window.showInformationMessage(`✓ File unlocked: ${document.fileName}`);
+			console.log(`File decrypted successfully: ${document.fileName}`);
+		} else {
+			vscode.window.showErrorMessage('Failed to apply decryption');
+		}
 	} catch (error) {
 		console.error('Error decrypting file:', error);
-		vscode.window.showErrorMessage('Failed to decrypt file');
+		vscode.window.showErrorMessage(`Failed to decrypt file: ${error}`);
 	}
 }
 
