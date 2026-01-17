@@ -285,6 +285,8 @@ function getChallengeHTML(): string {
 			height: 100%;
 			object-fit: cover;
 			display: block;
+			max-width: 400px;
+			max-height: 260px;
 		}
 
 		.webcam-section {
