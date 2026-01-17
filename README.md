@@ -1,71 +1,68 @@
-# vshater README
+# VSHater
 
-This is the README for your extension "vshater". After writing up a brief description, we recommend including the following sections.
+A VS Code extension that locks your files and forces you to do memes poses on webcam to unlock them.
 
-## Features
+## What is this
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+You open a file. It gets encrypted. Now you can't code until you dab, do the Khaby Lame hands, or point at your jawline like you're mewing. You have 60 seconds. Fail and the file gets deleted.
 
-For example if there is an image subfolder under your extension project workspace:
+## Why
 
-\!\[feature X\]\(images/feature-x.png\)
+We were bored and thought it'd be funny to make devs do meme actions just to access their own code.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+The idea started as a joke - "what if VS Code hated you?" - and we just kept going.
 
-## Requirements
+## Poses you'll have to do
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- **67 Hands** - Wave both hands up and down like you're at a concert
+- **Fanum Tax** - Stick out your tongue and shake your head
+- **Monkey Think** - Put your finger on your lip like you're pondering life
+- **Khaby Lame** - The classic palms-up "it's that simple" shrug
+- **Mewing** - Point at your jawline
+- **Monkey Happy** - Smile and point upward
+- **Dab** - You know what a dab is
 
-## Extension Settings
+3 random poses per challenge. 60 seconds total. Good luck.
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+## How it works
 
-For example:
+1. You open any file in VS Code
+2. Extension encrypts the file content immediately
+3. Browser opens with webcam challenge
+4. MediaPipe tracks your body and face in real-time
+5. Match 3 poses before time runs out
+6. Success = file decrypted, VS Code reopens
+7. Failure = file deleted, you're cooked
 
-This extension contributes the following settings:
+## Tech stack
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- **VS Code Extension API** - hooks into file open events, handles encryption/decryption
+- **MediaPipe Pose + FaceMesh** - real-time body and face landmark detection in browser
+- **Local HTTP server** - serves the challenge page, communicates completion back to extension
+- **TypeScript** - because we're not animals
 
-## Known Issues
+## Building it
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+```bash
+npm install
+npm run compile
+```
 
-## Release Notes
+Then press F5 in VS Code to run the extension in debug mode.
 
-Users appreciate release notes as you update your extension.
+## The detection logic
 
-### 1.0.0
+Each pose has specific requirements checked against MediaPipe landmarks:
 
-Initial release of ...
+- Wrist positions relative to shoulders/torso
+- Elbow angles (bent vs extended)
+- Finger proximity to face landmarks (jawline, lips, nose)
+- Mouth shape for smiles
+- Motion patterns for waving/shaking
+- Head tilt angles
 
-### 1.0.1
+We kept tweaking thresholds until the poses felt doable but not too easy.
 
-Fixed issue #.
+## Disclaimer
 
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+Don't actually use this on important files. We're not responsible for your deleted code. This is a joke that went too far.
