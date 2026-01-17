@@ -9,7 +9,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -24,6 +26,10 @@
       {
         "command": "vshater.testDetection",
         "title": "VSHater: Test Detection (Pick Action)"
+      },
+      {
+        "command": "vshater.decryptFile",
+        "title": "VSHater: Decrypt Current File"
       }
     ]
   },

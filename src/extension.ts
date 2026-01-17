@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import { encryptContent, decryptContent, isEncrypted } from './encryption';
+import { spawn } from 'child_process';
+import { platform } from 'os';
 
 // Available brainrot actions (5 final actions)
 const ACTIONS = [
@@ -21,25 +24,212 @@ let server: http.Server | undefined = undefined;
 let currentAction: ActionType | null | undefined = undefined;
 let onActionDetectedCallback: (() => void) | undefined = undefined;
 
-export function activate(context: vscode.ExtensionContext) {
-	console.log('VSHater is now active!');
+// Map to track locked files for decryption
+const lockedFiles = new Map<string, vscode.TextDocument>();
 
+export async function activate(context: vscode.ExtensionContext) {
+	console.log('VSHater is now active - files will be encrypted on open!');
+
+	// Listen for file open events
+	const openDisposable = vscode.workspace.onDidOpenTextDocument(async (document) => {
+		await handleFileOpen(document, context);
+	});
+
+	// Listen for file save events to re-encrypt if needed
+	const saveDisposable = vscode.workspace.onDidSaveTextDocument((document) => {
+		handleFileSave(document);
+	});
+
+	// Test commands for pose detection
 	const startDetection = vscode.commands.registerCommand('vshater.startDetection', () => {
-		// Pick a random action
 		const randomAction = ACTIONS[Math.floor(Math.random() * ACTIONS.length)];
 		startActionDetection(context, randomAction);
 	});
 
-	// Test mode - shows action picker
 	const testDetection = vscode.commands.registerCommand('vshater.testDetection', () => {
-		startActionDetection(context, null); // null = show picker
+		startActionDetection(context, null);
 	});
 
-	const helloWorld = vscode.commands.registerCommand('vshater.helloWorld', () => {
-		vscode.window.showInformationMessage('Hello World from VSHater!');
+	// Register command to decrypt a file (for testing purposes)
+	const decryptDisposable = vscode.commands.registerCommand('vshater.decryptFile', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showErrorMessage('No file is open');
+			return;
+		}
+
+		const document = editor.document;
+		const content = document.getText();
+
+		if (!isEncrypted(content)) {
+			vscode.window.showErrorMessage('This file is not encrypted');
+			return;
+		}
+
+		const decrypted = decryptContent(content);
+		if (!decrypted) {
+			vscode.window.showErrorMessage('Failed to decrypt file');
+			return;
+		}
+
+		const edit = new vscode.WorkspaceEdit();
+		const fullRange = new vscode.Range(
+			document.positionAt(0),
+			document.positionAt(content.length)
+		);
+
+		edit.replace(document.uri, fullRange, decrypted);
+		await vscode.workspace.applyEdit(edit);
+		vscode.window.showInformationMessage('File decrypted!');
 	});
 
-	context.subscriptions.push(startDetection, testDetection, helloWorld);
+	context.subscriptions.push(
+		openDisposable, 
+		saveDisposable, 
+		decryptDisposable,
+		startDetection,
+		testDetection
+	);
+
+	// Cleanup on deactivation
+	context.subscriptions.push(
+		new vscode.Disposable(() => {
+			stopServer();
+		})
+	);
+}
+
+async function handleFileOpen(document: vscode.TextDocument, context: vscode.ExtensionContext) {
+	// Skip non-file documents (like untitled, git, etc.)
+	if (document.uri.scheme !== 'file') {
+		return;
+	}
+
+	// Skip certain file types
+	const skipPatterns = ['node_modules', '.git', 'dist', 'build', '.vscode', 'package.json', 'package-lock.json'];
+	const filePath = document.uri.fsPath;
+
+	if (skipPatterns.some(pattern => filePath.includes(pattern))) {
+		return;
+	}
+
+	const content = document.getText();
+
+	// Skip if already encrypted
+	if (isEncrypted(content)) {
+		return;
+	}
+
+	// Skip empty files
+	if (content.trim().length === 0) {
+		return;
+	}
+
+	// Skip very large files (to avoid performance issues)
+	if (content.length > 1000000) {
+		return;
+	}
+
+	try {
+		// Track locked file for later decryption
+		const fileUri = document.uri.toString();
+		lockedFiles.set(fileUri, document);
+
+		// Encrypt the content
+		const encrypted = encryptContent(content);
+
+		// Replace the file content with encrypted version
+		const edit = new vscode.WorkspaceEdit();
+		const fullRange = new vscode.Range(
+			document.positionAt(0),
+			document.positionAt(content.length)
+		);
+
+		edit.replace(document.uri, fullRange, encrypted);
+		await vscode.workspace.applyEdit(edit);
+
+		console.log(`File encrypted: ${document.fileName}`);
+		vscode.window.showInformationMessage(`🔒 File locked: ${document.fileName}`);
+
+		// Start pose detection challenge to unlock
+		await startPoseChallenge(context, fileUri, document.fileName);
+	} catch (error) {
+		console.error('Error encrypting file:', error);
+	}
+}
+
+async function startPoseChallenge(context: vscode.ExtensionContext, fileUri: string, fileName: string) {
+	// Pick a random action for the user to perform
+	const randomAction = ACTIONS[Math.floor(Math.random() * ACTIONS.length)];
+	
+	onActionDetectedCallback = async () => {
+		// When pose is detected, decrypt the file
+		await decryptFile(fileUri);
+	};
+
+	await startActionDetection(context, randomAction);
+}
+
+async function decryptFile(fileUri: string) {
+	// Find the document through all open text documents
+	let document: vscode.TextDocument | undefined;
+	for (const doc of vscode.workspace.textDocuments) {
+		if (doc.uri.toString() === fileUri) {
+			document = doc;
+			break;
+		}
+	}
+
+	if (!document) {
+		console.error('Document not found for URI:', fileUri);
+		vscode.window.showErrorMessage('File not found');
+		return;
+	}
+
+	const content = document.getText();
+	console.log(`Decrypting file: ${document.fileName}, content starts with: ${content.substring(0, 30)}`);
+
+	const decrypted = decryptContent(content);
+
+	if (!decrypted) {
+		console.error('Decryption failed - content might not be encrypted');
+		vscode.window.showErrorMessage('Failed to decrypt file');
+		return;
+	}
+
+	try {
+		const edit = new vscode.WorkspaceEdit();
+		const fullRange = new vscode.Range(
+			document.positionAt(0),
+			document.positionAt(content.length)
+		);
+
+		edit.replace(document.uri, fullRange, decrypted);
+		const success = await vscode.workspace.applyEdit(edit);
+
+		if (success) {
+			lockedFiles.delete(fileUri);
+
+			// Save the file
+			await document.save();
+
+			vscode.window.showInformationMessage(`✓ File unlocked: ${document.fileName}`);
+			console.log(`File decrypted successfully: ${document.fileName}`);
+		} else {
+			vscode.window.showErrorMessage('Failed to apply decryption');
+		}
+	} catch (error) {
+		console.error('Error decrypting file:', error);
+		vscode.window.showErrorMessage(`Failed to decrypt file: ${error}`);
+	}
+}
+
+function handleFileSave(document: vscode.TextDocument) {
+	// If the file is encrypted, prevent normal save and keep it encrypted
+	const content = document.getText();
+	if (isEncrypted(content)) {
+		console.log(`Encrypted file saved: ${document.fileName}`);
+	}
 }
 
 async function startActionDetection(context: vscode.ExtensionContext, action: ActionType | null) {
